@@ -87,9 +87,16 @@ public class Outliner {
 	}
 
 	public OutlineParams showCluster(Object slot, Iterable<BlockPos> selection) {
-		BlockClusterOutline outline = new BlockClusterOutline(selection);
-		addOutline(slot, outline);
-		return outline.getParams();
+		OutlineEntry entry = outlines.get(slot);
+		if (!(entry != null && entry.outline instanceof BlockClusterOutline blockCluster
+			&& blockCluster.isSameSelection(selection))) {
+			BlockClusterOutline newOutline = new BlockClusterOutline(selection);
+			entry = new OutlineEntry(newOutline);
+			outlines.put(slot, entry);
+		}
+
+		entry.ticksTillRemoval = 1;
+		return entry.getOutline().getParams();
 	}
 
 	//

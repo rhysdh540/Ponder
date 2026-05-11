@@ -25,6 +25,7 @@ import net.minecraft.world.phys.Vec3;
 public class BlockClusterOutline extends Outline {
 
 	private final Cluster cluster;
+	private final Iterable<BlockPos> positions;
 
 	protected final Vector3f pos0Temp = new Vector3f();
 	protected final Vector3f pos1Temp = new Vector3f();
@@ -34,8 +35,13 @@ public class BlockClusterOutline extends Outline {
 	protected final Vector3f originTemp = new Vector3f();
 
 	public BlockClusterOutline(Iterable<BlockPos> positions) {
+		this.positions = positions;
 		cluster = new Cluster();
 		positions.forEach(cluster::include);
+	}
+
+	public boolean isSameSelection(Iterable<BlockPos> positions) {
+		return this.positions == positions;
 	}
 
 	@Override
