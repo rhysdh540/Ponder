@@ -1,11 +1,8 @@
 package net.createmod.catnip.outliner;
 
+import java.util.Arrays;
 import java.util.BitSet;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
 
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -15,6 +12,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.createmod.catnip.render.BindableTexture;
 import net.createmod.catnip.render.PonderRenderTypes;
 import net.createmod.catnip.render.SuperRenderTypeBuffer;
@@ -28,6 +26,9 @@ import net.minecraft.world.phys.Vec3;
 import javax.annotation.Nullable;
 
 public class BlockClusterOutline extends Outline {
+
+	private static final Direction[] DIRECTIONS = Direction.values();
+	private static final Axis[] AXES = Axis.values();
 
 	private final Cluster cluster;
 	private final Iterable<BlockPos> positions;
@@ -75,13 +76,13 @@ public class BlockClusterOutline extends Outline {
 		RenderType renderType = PonderRenderTypes.outlineTranslucent(faceTexture.getLocation(), true);
 		VertexConsumer consumer = buffer.getLateBuffer(renderType);
 
-		cluster.visibleFaces.forEach((face, axisDirection) -> {
-			Direction direction = Direction.get(axisDirection, face.axis);
-			BlockPos pos = face.pos;
-			if (axisDirection == AxisDirection.POSITIVE)
-				pos = pos.relative(direction.getOpposite());
-			bufferBlockFace(pose, consumer, pos, direction, color, lightmap);
-		});
+		for (Direction direction : DIRECTIONS) {
+			LongArrayList faces = cluster.visibleFaces[direction.ordinal()];
+			for (int i = 0; i < faces.size(); i++) {
+				long pos = faces.getLong(i);
+				bufferBlockFace(pose, consumer, BlockPos.getX(pos), BlockPos.getY(pos), BlockPos.getZ(pos), direction, color, lightmap);
+			}
+		}
 
 		ms.popPose();
 	}
@@ -100,13 +101,16 @@ public class BlockClusterOutline extends Outline {
 		PoseStack.Pose pose = ms.last();
 		VertexConsumer consumer = buffer.getBuffer(PonderRenderTypes.outlineSolid());
 
-		cluster.visibleEdges.forEach(edge -> {
-			BlockPos pos = edge.pos;
-			Vector3f origin = originTemp;
-			origin.set(pos.getX(), pos.getY(), pos.getZ());
-			Direction direction = Direction.get(AxisDirection.POSITIVE, edge.axis);
-			bufferCuboidLine(pose, consumer, origin, direction, 1, lineWidth, color, lightmap, disableNormals);
-		});
+		for (Axis axis : AXES) {
+			Direction direction = Direction.get(AxisDirection.POSITIVE, axis);
+			LongArrayList edges = cluster.visibleEdges[axis.ordinal()];
+			for (int i = 0; i < edges.size(); i++) {
+				long pos = edges.getLong(i);
+				Vector3f origin = originTemp;
+				origin.set(BlockPos.getX(pos), BlockPos.getY(pos), BlockPos.getZ(pos));
+				bufferCuboidLine(pose, consumer, origin, direction, 1, lineWidth, color, lightmap, disableNormals);
+			}
+		}
 
 		ms.popPose();
 	}
@@ -171,7 +175,7 @@ public class BlockClusterOutline extends Outline {
 		pos3.add(x, y, z);
 	}
 
-	protected void bufferBlockFace(PoseStack.Pose pose, VertexConsumer consumer, BlockPos pos, Direction face, Vector4f color, int lightmap) {
+	protected void bufferBlockFace(PoseStack.Pose pose, VertexConsumer consumer, int x, int y, int z, Direction face, Vector4f color, int lightmap) {
 		Vector3f pos0 = pos0Temp;
 		Vector3f pos1 = pos1Temp;
 		Vector3f pos2 = pos2Temp;
@@ -179,9 +183,9 @@ public class BlockClusterOutline extends Outline {
 		Vector3f normal = normalTemp;
 
 		loadFaceData(face, pos0, pos1, pos2, pos3, normal);
-		addPos(pos.getX() + face.getStepX() / 128f,
-			pos.getY() + face.getStepY() / 128f,
-			pos.getZ() + face.getStepZ() / 128f,
+		addPos(x + face.getStepX() / 128f,
+			y + face.getStepY() / 128f,
+			z + face.getStepZ() / 128f,
 			pos0, pos1, pos2, pos3);
 
 		bufferQuad(pose, consumer, pos0, pos1, pos2, pos3, color, lightmap, normal);
@@ -191,12 +195,14 @@ public class BlockClusterOutline extends Outline {
 
 		@Nullable
 		private BlockPos anchor;
-		private final Map<MergeEntry, AxisDirection> visibleFaces;
-		private final Set<MergeEntry> visibleEdges;
+		private final LongArrayList[] visibleFaces;
+		private final LongArrayList[] visibleEdges;
 
 		public Cluster() {
-			visibleEdges = new HashSet<>();
-			visibleFaces = new HashMap<>();
+			visibleFaces = new LongArrayList[DIRECTIONS.length];
+			Arrays.setAll(visibleFaces, i -> new LongArrayList());
+			visibleEdges = new LongArrayList[AXES.length];
+			Arrays.setAll(visibleEdges, i -> new LongArrayList());
 			anchor = null;
 		}
 
@@ -367,11 +373,17 @@ public class BlockClusterOutline extends Outline {
 		}
 
 		private void addFace(Axis axis, int x, int y, int z, AxisDirection axisDirection) {
-			visibleFaces.put(new MergeEntry(axis, new BlockPos(x, y, z)), axisDirection);
+			Direction direction = Direction.get(axisDirection, axis);
+			if (axisDirection == AxisDirection.POSITIVE) {
+				x -= direction.getStepX();
+				y -= direction.getStepY();
+				z -= direction.getStepZ();
+			}
+			visibleFaces[direction.ordinal()].add(BlockPos.asLong(x, y, z));
 		}
 
 		private void addEdge(Axis axis, int x, int y, int z) {
-			visibleEdges.add(new MergeEntry(axis, new BlockPos(x, y, z)));
+			visibleEdges[axis.ordinal()].add(BlockPos.asLong(x, y, z));
 		}
 
 		private static int index(int x, int y, int z, int sizeX, int sizeY) {
@@ -384,32 +396,6 @@ public class BlockClusterOutline extends Outline {
 			return occupancy.get(index(x, y, z, sizeX, sizeY));
 		}
 
-	}
-
-	private static class MergeEntry {
-
-		private final Axis axis;
-		private final BlockPos pos;
-
-		public MergeEntry(Axis axis, BlockPos pos) {
-			this.axis = axis;
-			this.pos = pos;
-		}
-
-		@Override
-		public boolean equals(Object o) {
-			if (this == o)
-				return true;
-			if (!(o instanceof MergeEntry other))
-				return false;
-
-			return this.axis == other.axis && this.pos.equals(other.pos);
-		}
-
-		@Override
-		public int hashCode() {
-			return this.pos.hashCode() * 31 + axis.ordinal();
-		}
 	}
 
 }
